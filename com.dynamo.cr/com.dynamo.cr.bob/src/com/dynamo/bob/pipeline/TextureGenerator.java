@@ -35,12 +35,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.EnumSet;
 
 import javax.imageio.ImageIO;
 
+import com.dynamo.bob.Bob;
 import com.dynamo.bob.TexcLibrary;
 import com.dynamo.bob.TexcLibrary.ColorSpace;
 import com.dynamo.bob.TexcLibrary.DitherType;
@@ -62,7 +64,9 @@ import com.sun.jna.Pointer;
 
 public class TextureGenerator {
 
-    private static HashMap<TextureFormatAlternative.CompressionLevel, Integer> compressionLevelLUT = new HashMap<TextureFormatAlternative.CompressionLevel, Integer>();
+    private static Logger logger = Logger.getLogger(TextureGenerator.class.getName());
+
+    private static HashMap<TextureFormatAlternative.CompressionLevel, Integer> compressionLevelLUT = new HashMap<>();
     static {
         compressionLevelLUT.put(TextureFormatAlternative.CompressionLevel.FAST, CompressionLevel.CL_FAST);
         compressionLevelLUT.put(TextureFormatAlternative.CompressionLevel.NORMAL, CompressionLevel.CL_NORMAL);
@@ -70,18 +74,47 @@ public class TextureGenerator {
         compressionLevelLUT.put(TextureFormatAlternative.CompressionLevel.BEST, CompressionLevel.CL_BEST);
     }
 
-    private static HashMap<TextureImage.CompressionType, Integer> compressionTypeLUT = new HashMap<TextureImage.CompressionType, Integer>();
+    private static HashMap<TextureImage.CompressionType, Integer> compressionTypeLUT = new HashMap<>();
     static {
-        compressionTypeLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_DEFAULT, CompressionType.CT_DEFAULT);
+        compressionTypeLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_DEFAULT, CompressionType.CT_NONE);
         // For backwards compatibility, we automatically convert the WEBP to either DEFAULT, or UASTC
-        compressionTypeLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_WEBP, CompressionType.CT_DEFAULT);
+        compressionTypeLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_WEBP, CompressionType.CT_NONE);
         compressionTypeLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_WEBP_LOSSY, CompressionType.CT_BASIS_UASTC);
 
         compressionTypeLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_BASIS_UASTC, CompressionType.CT_BASIS_UASTC);
-        compressionTypeLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_BASIS_ETC1S, CompressionType.CT_BASIS_ETC1S);
+        compressionTypeLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_BASIS_ETC1S, CompressionType.CT_BASIS_UASTC);
+        compressionTypeLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_NONE, CompressionType.CT_NONE);
     }
 
-    private static HashMap<TextureFormat, Integer> pixelFormatLUT = new HashMap<TextureFormat, Integer>();
+    private static HashSet<TextureFormat> supportedFormatsForNone = new HashSet<>();
+    static {
+        supportedFormatsForNone.add(TextureFormat.TEXTURE_FORMAT_LUMINANCE);
+        supportedFormatsForNone.add(TextureFormat.TEXTURE_FORMAT_RGB);
+        supportedFormatsForNone.add(TextureFormat.TEXTURE_FORMAT_RGBA);
+        supportedFormatsForNone.add(TextureFormat.TEXTURE_FORMAT_RGB_16BPP);
+        supportedFormatsForNone.add(TextureFormat.TEXTURE_FORMAT_RGBA_16BPP);
+        supportedFormatsForNone.add(TextureFormat.TEXTURE_FORMAT_LUMINANCE_ALPHA);
+    }
+    private static HashSet<TextureFormat> supportedFormatsForUASTC = new HashSet<>();
+    static {
+        supportedFormatsForUASTC.add(TextureFormat.TEXTURE_FORMAT_LUMINANCE);
+        supportedFormatsForUASTC.add(TextureFormat.TEXTURE_FORMAT_RGB);
+        supportedFormatsForUASTC.add(TextureFormat.TEXTURE_FORMAT_RGBA);
+        supportedFormatsForUASTC.add(TextureFormat.TEXTURE_FORMAT_RGB_16BPP);
+        supportedFormatsForUASTC.add(TextureFormat.TEXTURE_FORMAT_RGBA_16BPP);
+        supportedFormatsForUASTC.add(TextureFormat.TEXTURE_FORMAT_LUMINANCE_ALPHA);
+    }
+
+    private static HashMap<TextureImage.CompressionType, HashSet<TextureFormat>> supportedFormatsLUT = new HashMap<>();
+    static {
+        supportedFormatsLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_DEFAULT, new HashSet<>());
+        supportedFormatsLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_NONE, supportedFormatsForNone);
+        supportedFormatsLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_BASIS_UASTC, supportedFormatsForUASTC);
+        supportedFormatsLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_WEBP, new HashSet<>());
+        supportedFormatsLUT.put(TextureImage.CompressionType.COMPRESSION_TYPE_WEBP_LOSSY, new HashSet<>());
+    }
+
+    private static HashMap<TextureFormat, Integer> pixelFormatLUT = new HashMap<>();
     static {
         pixelFormatLUT.put(TextureFormat.TEXTURE_FORMAT_LUMINANCE, PixelFormat.L8);
         pixelFormatLUT.put(TextureFormat.TEXTURE_FORMAT_RGB, PixelFormat.R8G8B8);
@@ -232,27 +265,40 @@ public class TextureGenerator {
 
         int dataSize = width * height * 4;
 
-
         ByteBuffer buffer_input = getByteBuffer(image);
 
+        // convert unsupported compression types
+        if (compressionType == TextureImage.CompressionType.COMPRESSION_TYPE_WEBP) {
+            compressionType = TextureImage.CompressionType.COMPRESSION_TYPE_NONE;
+            logger.log(Level.WARNING, "Lossless WebP compression is not supported. Using no compression.");
+        }
+        else if (compressionType == TextureImage.CompressionType.COMPRESSION_TYPE_WEBP_LOSSY) {
+            compressionType = TextureImage.CompressionType.COMPRESSION_TYPE_BASIS_UASTC;
+            logger.log(Level.WARNING, "Lossy WebP compression is not supported. Using Basis UASTC.");
+        }
+        else if (compressionType == TextureImage.CompressionType.COMPRESSION_TYPE_BASIS_ETC1S) {
+            compressionType = TextureImage.CompressionType.COMPRESSION_TYPE_BASIS_UASTC;
+            logger.log(Level.WARNING, "Basis ETC1S compression is not supported. Using Basis UASTC.");
+        }
+        else if (compressionType == TextureImage.CompressionType.COMPRESSION_TYPE_DEFAULT) {
+            compressionType = TextureImage.CompressionType.COMPRESSION_TYPE_NONE;
+        }
+
+        HashSet<TextureFormat> supportedFormats = supportedFormatsLUT.get(compressionType);
+        if (!supportedFormats.contains(textureFormat)) {
+            throw new TextureGeneratorException("Unsupported texture format '" + textureFormat + "' for compression '" + compressionType + "'");
+        }
 
         // convert from protobuf specified compressionlevel to texc int
         texcCompressionLevel = compressionLevelLUT.get(compressionLevel);
-
-        // convert compression type from WebP to something else
-        if (compressionType == TextureImage.CompressionType.COMPRESSION_TYPE_WEBP)
-            compressionType = TextureImage.CompressionType.COMPRESSION_TYPE_DEFAULT;
-        else
-        if (compressionType == TextureImage.CompressionType.COMPRESSION_TYPE_WEBP_LOSSY)
-            compressionType = TextureImage.CompressionType.COMPRESSION_TYPE_BASIS_UASTC;
 
         // convert from protobuf specified compressionType to texc int
         texcCompressionType = compressionTypeLUT.get(compressionType);
 
         if (!compress) {
             texcCompressionLevel = CompressionLevel.CL_FAST;
-            texcCompressionType = CompressionType.CT_DEFAULT;
-            compressionType = TextureImage.CompressionType.COMPRESSION_TYPE_DEFAULT;
+            texcCompressionType = CompressionType.CT_NONE;
+            compressionType = TextureImage.CompressionType.COMPRESSION_TYPE_NONE;
 
             // If pvrtc or etc1, set these as rgba instead. Since these formats will take some time to compress even
             // with "fast" setting and we don't want to increase the build time more than we have to.
@@ -310,7 +356,6 @@ public class TextureGenerator {
                 textureFormat == TextureFormat.TEXTURE_FORMAT_RGB_PVRTC_2BPPV1 ||
                 textureFormat == TextureFormat.TEXTURE_FORMAT_RGBA_PVRTC_2BPPV1)) {
 
-                Logger logger = Logger.getLogger(TextureGenerator.class.getName());
                 logger.log(Level.WARNING, "PVR compressed texture is not square and will be resized.");
 
                 newWidth = Math.max(newWidth, newHeight);
@@ -465,6 +510,7 @@ public class TextureGenerator {
             // Generate an image for each format specified in the profile
             for (PlatformProfile platformProfile : texProfile.getPlatformsList()) {
                 for (int i = 0; i < platformProfile.getFormatsList().size(); ++i) {
+                    Bob.verbose("generate with texture profile i: %d", i);
                     TextureImage.CompressionType compressionType = platformProfile.getFormats(i).getCompressionType();
                     TextureFormatAlternative.CompressionLevel compressionLevel = platformProfile.getFormats(i).getCompressionLevel();
                     TextureFormat textureFormat = platformProfile.getFormats(i).getFormat();
@@ -495,7 +541,7 @@ public class TextureGenerator {
 
             // Guess texture format based on number color components of input image
             TextureFormat textureFormat = pickOptimalFormat(componentCount, TextureFormat.TEXTURE_FORMAT_RGBA);
-            TextureImage.Image raw = generateFromColorAndFormat(null, image, colorModel, textureFormat, TextureFormatAlternative.CompressionLevel.NORMAL, TextureImage.CompressionType.COMPRESSION_TYPE_DEFAULT, true, 0, false, true, flipAxis);
+            TextureImage.Image raw = generateFromColorAndFormat(null, image, colorModel, textureFormat, TextureFormatAlternative.CompressionLevel.NORMAL, TextureImage.CompressionType.COMPRESSION_TYPE_NONE, true, 0, false, true, flipAxis);
             textureBuilder.addAlternatives(raw);
             textureBuilder.setCount(1);
 
