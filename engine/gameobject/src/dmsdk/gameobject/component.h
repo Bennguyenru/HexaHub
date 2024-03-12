@@ -217,9 +217,9 @@ namespace dmGameObject
     struct ComponentGetParams
     {
         /// Component world
-        void* m_World;
+        dmGameObject::HComponentWorld       m_World;
         /// User data storage pointer
-        uintptr_t* m_UserData;
+        dmGameObject::HComponentInternal    m_UserData;
     };
 
     /*#

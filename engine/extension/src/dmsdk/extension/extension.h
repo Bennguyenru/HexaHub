@@ -118,6 +118,9 @@ namespace dmExtension
         EVENT_ID_DEACTIVATEAPP,
         EVENT_ID_ICONIFYAPP,
         EVENT_ID_DEICONIFYAPP,
+
+        EVENT_ID_ENGINE_INITIALIZED,// After Init() has been run, before first Step()
+        EVENT_ID_ENGINE_DELETE,     // At the top of the Delete() of the engine
     };
 
     /*# extra callback enumeration
