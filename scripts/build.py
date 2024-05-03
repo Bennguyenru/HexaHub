@@ -1068,6 +1068,23 @@ class Configuration(object):
 
         return platforms
 
+# ------------------------------------------------------------
+# Gen source files
+
+    def _gen_sdk_source_lib(self, libname, args, cwd, info):
+        self._log('Generating source for %s' % libname)
+        libargs = args + ['-i', info]
+        run.env_command(self._form_env(), libargs, cwd = cwd)
+
+    def gen_sdk_source(self):
+        print("Generating source!")
+        cmd = [self.get_python(), os.path.normpath(join(self.defold_root, './scripts/dmsdk/gen_sdk.py'))]
+        for lib in ENGINE_LIBS:
+            cwd = 'engine/%s' % lib
+            info = join(self.defold_root, 'engine/%s/sdk_gen.json' % lib)
+            if os.path.exists(info):
+                self._gen_sdk_source_lib(lib, cmd, join(self.defold_root, cwd), info)
+
     def _build_engine_cmd(self, skip_tests, skip_codesign, disable_ccache, prefix):
         prefix = prefix and prefix or self.dynamo_home
         return '%s %s/ext/bin/waf --prefix=%s %s %s %s distclean configure build install' % (' '.join(self.get_python()), self.dynamo_home, prefix, skip_tests, skip_codesign, disable_ccache)
