@@ -116,6 +116,7 @@ namespace dmRender
 
         context->m_ScriptContext = params.m_ScriptContext;
         InitializeRenderScriptContext(context->m_RenderScriptContext, graphics_context, params.m_ScriptContext, params.m_CommandBufferSize);
+        InitializeRenderScriptCameraContext(context, params.m_ScriptContext);
         context->m_ScriptWorld = dmScript::NewScriptWorld(context->m_ScriptContext);
 
         context->m_DebugRenderer.m_RenderContext = 0;
@@ -151,6 +152,7 @@ namespace dmRender
         if (render_context == 0x0) return RESULT_INVALID_CONTEXT;
 
         FinalizeRenderScriptContext(render_context->m_RenderScriptContext, script_context);
+        FinalizeRenderScriptCameraContext(render_context);
         dmScript::DeleteScriptWorld(render_context->m_ScriptWorld);
         FinalizeDebugRenderer(render_context);
         FinalizeTextContext(render_context);
@@ -160,7 +162,8 @@ namespace dmRender
         return RESULT_OK;
     }
 
-    dmScript::HContext GetScriptContext(HRenderContext render_context) {
+    dmScript::HContext GetScriptContext(HRenderContext render_context)
+    {
         return render_context->m_ScriptContext;
     }
 
@@ -267,7 +270,6 @@ namespace dmRender
         // Unflushed leftovers are assumed to be the debug rendering
         // and we give them render orders statically here
         FlushTexts(render_context, RENDER_ORDER_AFTER_WORLD, 0xffffff, true);
-
     }
 
     void SetSystemFontMap(HRenderContext render_context, HFontMap font_map)
@@ -923,11 +925,19 @@ namespace dmRender
             return RESULT_INVALID_CONTEXT;
 
         dmGraphics::HContext context = dmRender::GetGraphicsContext(render_context);
-        dmGraphics::HTexture render_context_textures[RenderObject::MAX_TEXTURE_COUNT];
-        memset(render_context_textures, 0, sizeof(render_context_textures));
+        dmGraphics::HTexture render_context_textures[RenderObject::MAX_TEXTURE_COUNT] = {};
 
-        HMaterial material = render_context->m_Material;
+        // Do we want to store the old matrices here before overwriting them?
+        if (render_context->m_CurrentRenderCamera)
+        {
+            render_context->m_View       = render_context->m_CurrentRenderCamera->m_View;
+            render_context->m_Projection = render_context->m_CurrentRenderCamera->m_Projection;
+            render_context->m_ViewProj   = render_context->m_CurrentRenderCamera->m_ViewProjection;
+        }
+
+        HMaterial material         = render_context->m_Material;
         HMaterial context_material = render_context->m_Material;
+
         if(context_material)
         {
             dmGraphics::EnableProgram(context, GetMaterialProgram(context_material));

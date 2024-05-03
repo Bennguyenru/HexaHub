@@ -49,6 +49,7 @@ namespace dmRender
     typedef struct ComputeProgram*          HComputeProgram;
     typedef uintptr_t                       HRenderBuffer;
     typedef struct BufferedRenderBuffer*    HBufferedRenderBuffer;
+    typedef HOpaqueHandle                   HRenderCamera;
 
     /**
      * Display profiles handle
@@ -135,8 +136,8 @@ namespace dmRender
         uint32_t                        m_MaxDebugVertexCount;
     };
 
-    static const uint8_t RENDERLIST_INVALID_DISPATCH = 0xff;
-
+    static const uint8_t RENDERLIST_INVALID_DISPATCH    = 0xff;
+    static const uint16_t INVALID_RENDER_CAMERA         = 0xffff;
     static const HRenderType INVALID_RENDER_TYPE_HANDLE = ~0ULL;
 
     HRenderContext NewRenderContext(dmGraphics::HContext graphics_context, const RenderContextParams& params);
@@ -328,6 +329,28 @@ namespace dmRender
     void                            TrimBuffer(HRenderContext render_context, HBufferedRenderBuffer buffer);
     void                            RewindBuffer(HRenderContext render_context, HBufferedRenderBuffer buffer);
 
+    struct RenderCameraData
+    {
+        dmVMath::Vector4 m_Viewport;
+        float            m_AspectRatio;
+        float            m_Fov;
+        float            m_NearZ;
+        float            m_FarZ;
+        float            m_OrthographicZoom;
+        uint8_t          m_AutoAspectRatio        : 1;
+        uint8_t          m_OrthographicProjection : 1;
+    };
+
+    /** Render cameras
+     * TODO: Description
+     */
+    HRenderCamera                   NewRenderCamera(HRenderContext context);
+    void                            DeleteRenderCamera(HRenderContext context, HRenderCamera camera);
+    void                            SetRenderCameraURL(HRenderContext render_context, HRenderCamera camera, const dmMessage::URL& camera_url);
+    void                            SetRenderCameraData(HRenderContext render_context, HRenderCamera camera, RenderCameraData data);
+    void                            SetRenderCameraMatrices(HRenderContext render_context, HRenderCamera camera, const dmVMath::Matrix4 view, const dmVMath::Matrix4 projection);
+    RenderCameraData                GetRenderCameraData(HRenderContext render_context, HRenderCamera camera);
+    void                            SetRenderCameraMainCamera(HRenderContext render_context, HRenderCamera camera);
 }
 
 #endif /* DM_RENDER_H */
